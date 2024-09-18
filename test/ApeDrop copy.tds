@@ -7,6 +7,11 @@ import {
   setBalance,
 } from "@nomicfoundation/hardhat-network-helpers";
 
+function safeStringify(obj: any) {
+  return JSON.stringify(obj, (_, v) =>
+    typeof v === "bigint" ? v.toString() : v
+  );
+}
 
 describe("ApeDrop", function () {
   async function deployApeDropFixture() {

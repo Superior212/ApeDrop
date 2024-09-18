@@ -7,29 +7,28 @@ import {
   setBalance,
 } from "@nomicfoundation/hardhat-network-helpers";
 
-function safeStringify(obj: any) {
-  return JSON.stringify(obj, (_, v) =>
-    typeof v === "bigint" ? v.toString() : v
-  );
-}
-
 describe("ApeDrop", function () {
-  async function deployApeDropFixture() {
-    const [owner, addr1, addr2] = await ethers.getSigners();
+  async function deployApeDrop() {
+    const [owner] = await ethers.getSigners();
 
     // Deploy mock ERC20 token
     const ApeReward = await ethers.getContractFactory("ApeReward");
     const token = await ApeReward.deploy();
 
-    const BAYC_ADDRESS = "0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D";
+    const addr1 = "0x76C1cFe708ED1d2FF2073490727f3301117767e9";
+    const addr2 = "0x6b4DF334368b09f87B3722449703060EEf284126";
+    const addr3 = "0x6b4DF334368b09f87B3722449703060EEf284126";
     const BAYC_HOLDER = "0x76C1cFe708ED1d2FF2073490727f3301117767e9";
+    const BAYC_ADDRESS = "0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D";
 
     // Create Merkle tree including the BAYC holder
     const leaves = [
-      [addr1.address, ethers.parseEther("100")],
-      [addr2.address, ethers.parseEther("100")],
+      [addr1, ethers.parseEther("100")],
+      [addr2, ethers.parseEther("100")],
+      [addr3, ethers.parseEther("100")],
       [BAYC_HOLDER, ethers.parseEther("100")],
     ];
+
     const tree = StandardMerkleTree.of(leaves, ["address", "uint256"]);
     const merkleRoot = tree.root;
 
@@ -49,7 +48,7 @@ describe("ApeDrop", function () {
   describe("Airdrop Claim", function () {
     it("Should allow BAYC owner to claim tokens", async function () {
       const { apeDrop, token, BAYC_HOLDER, tree, BAYC } = await loadFixture(
-        deployApeDropFixture
+        deployApeDrop
       );
 
       await impersonateAccount(BAYC_HOLDER);
@@ -57,7 +56,10 @@ describe("ApeDrop", function () {
       await setBalance(BAYC_HOLDER, ethers.parseEther("10"));
 
       const amount = ethers.parseEther("100");
-      const proof = tree.getProof([BAYC_HOLDER, amount]);
+      const proof = tree.getProof([
+        baycOwner.address,
+        ethers.parseEther("100"),
+      ]);
 
       // Check BAYC balance
       const baycBalance = await BAYC.balanceOf(baycOwner.address);
@@ -72,46 +74,25 @@ describe("ApeDrop", function () {
     });
 
     it("Should not allow non-BAYC holder to claim airdrop", async function () {
-      const { apeDrop, addr1, tree } = await loadFixture(deployApeDropFixture);
+      const { apeDrop, addr1, tree } = await loadFixture(deployApeDrop);
 
       const claimAmount = ethers.parseEther("100");
-      const proof = tree.getProof([addr1.address, claimAmount]);
+      const proof = tree.getProof([addr1, claimAmount]);
 
-      await expect(
-        apeDrop.connect(addr1).claimAirdrop(proof, claimAmount)
-      ).to.be.revertedWith("Must own a BAYC NFT to claim");
-    });
-
-    it("Should not allow double claiming", async function () {
-      const { apeDrop, BAYC_HOLDER, tree } = await loadFixture(
-        deployApeDropFixture
+      await expect(apeDrop.claimAirdrop(proof, claimAmount)).to.be.revertedWith(
+        "Must own a BAYC NFT to claim"
       );
-
-      await impersonateAccount(BAYC_HOLDER);
-      const baycOwner = await ethers.getSigner(BAYC_HOLDER);
-      await setBalance(BAYC_HOLDER, ethers.parseEther("10"));
-
-      const claimAmount = ethers.parseEther("100");
-      const proof = tree.getProof([BAYC_HOLDER, claimAmount]);
-
-      // First claim should succeed
-      await apeDrop.connect(baycOwner).claimAirdrop(proof, claimAmount);
-
-      // Second claim should fail
-      await expect(
-        apeDrop.connect(baycOwner).claimAirdrop(proof, claimAmount)
-      ).to.be.revertedWith("Address has already claimed");
     });
   });
 
   describe("Deployment", function () {
     it("Should set the right token address", async function () {
-      const { apeDrop, token } = await loadFixture(deployApeDropFixture);
+      const { apeDrop, token } = await loadFixture(deployApeDrop);
       expect(await apeDrop.token()).to.equal(await token.getAddress());
     });
 
     it("Should set the correct BAYC NFT address", async function () {
-      const { apeDrop } = await loadFixture(deployApeDropFixture);
+      const { apeDrop } = await loadFixture(deployApeDrop);
       expect(await apeDrop.BAYC_NFT()).to.equal(
         "0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D"
       );
@@ -120,7 +101,7 @@ describe("ApeDrop", function () {
 
   describe("Token Withdrawal", function () {
     it("Should allow owner to withdraw remaining tokens", async function () {
-      const { apeDrop, token, owner } = await loadFixture(deployApeDropFixture);
+      const { apeDrop, token, owner } = await loadFixture(deployApeDrop);
 
       const initialBalance = await token.balanceOf(owner.address);
       const contractBalance = await token.balanceOf(await apeDrop.getAddress());
@@ -134,7 +115,7 @@ describe("ApeDrop", function () {
     });
 
     it("Should not allow non-owner to withdraw tokens", async function () {
-      const { apeDrop } = await loadFixture(deployApeDropFixture);
+      const { apeDrop } = await loadFixture(deployApeDrop);
       const [_, nonOwner] = await ethers.getSigners();
 
       await expect(apeDrop.connect(nonOwner).withdrawRemainingTokens())

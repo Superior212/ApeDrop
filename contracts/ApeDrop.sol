@@ -9,19 +9,23 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 contract ApeDrop is Ownable {
     bytes32 public merkleRoot;
     IERC20 public token;
-    IERC721 public constant BAYC_NFT =
-        IERC721(0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D);
-         // 0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d
+    IERC721 public BAYC_NFT;
 
     mapping(address => bool) public hasClaimed;
 
     event AirdropClaimed(address indexed claimant, uint256 amount);
+    event LeafComputed(bytes32 leaf);
+    event ProofVerificationResult(bool isValid);
 
     constructor(address _token, bytes32 _merkleRoot) Ownable(msg.sender) {
         token = IERC20(_token);
         merkleRoot = _merkleRoot;
+        BAYC_NFT = IERC721(0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D);
     }
-    
+
+    function setBAYCAddress(address _baycAddress) external onlyOwner {
+        BAYC_NFT = IERC721(_baycAddress);
+    }
 
     function claimAirdrop(bytes32[] memory proof, uint256 amount) public {
         require(!hasClaimed[msg.sender], "Address has already claimed");
@@ -30,8 +34,15 @@ contract ApeDrop is Ownable {
             "Must own a BAYC NFT to claim"
         );
 
-        bytes32 leaf = keccak256(abi.encodePacked(msg.sender, amount));
-        require(MerkleProof.verify(proof, merkleRoot, leaf), "Invalid Merkle proof");
+        bytes32 leaf = keccak256(
+            bytes.concat(keccak256(abi.encode(msg.sender, amount)))
+        );
+        emit LeafComputed(leaf);
+
+        bool isValid = MerkleProof.verify(proof, merkleRoot, leaf);
+        emit ProofVerificationResult(isValid);
+
+        require(isValid, "Invalid Merkle proof");
 
         hasClaimed[msg.sender] = true;
         require(token.transfer(msg.sender, amount), "Token transfer failed");

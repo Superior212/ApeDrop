@@ -2,67 +2,90 @@ import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
 import fs from "fs";
 import csv from "csv-parser";
 
-interface AirdropData {
-  address: string;
-  amount: string;
+interface AirdropEntry {
+  user_address: string; // Ethereum address
+  amount: number; // Token amount eligible for airdrop
 }
 
-interface Proof {
-  amount: string;
-  proof: string[];
-}
+const values: [string, number][] = []; // Array to store values from CSV
+const feedFile = "scripts/airdrop.csv";
 
-interface Proofs {
-  [address: string]: Proof;
-}
+// Function to validate Ethereum address
+const isValidEthereumAddress = (address: string): boolean => {
+  return /^0x[a-fA-F0-9]{40}$/.test(address);
+};
 
-async function main(): Promise<void> {
-  const values: [string, string][] = [];
-  const proofs: Proofs = {};
+// Read the CSV file and populate the values array
+fs.createReadStream(feedFile)
+  .pipe(csv())
+  .on("data", (row: AirdropEntry) => {
+    if (isValidEthereumAddress(row.user_address)) {
+      values.push([row.user_address, row.amount]);
+    } else {
+      console.error(`Invalid Ethereum address: ${row.user_address}`);
+    }
+  })
+  .on("end", async () => {
+    // Create a Merkle tree from the values
+    const tree = StandardMerkleTree.of(values, ["address", "uint256"]);
+    console.log("Merkle Root:", tree.root);
 
-  await new Promise<void>((resolve, reject) => {
-    fs.createReadStream("scripts/airdrop.csv")
+    // Write the tree to a JSON file asynchronously
+    await fs.promises.writeFile(
+      "tree.json",
+      JSON.stringify(tree.dump(), null, 2)
+    );
+
+    // Load the tree from the JSON file
+    try {
+      const loadedTree = StandardMerkleTree.load(
+        JSON.parse(await fs.promises.readFile("tree.json", "utf8"))
+      );
+      const proofs: any = {};
+
+      // Iterate over the entries in the loaded tree
+      for (const [i, v] of loadedTree.entries()) {
+        // Get the proof for each address
+        const proof = loadedTree.getProof(i);
+        proofs[v[0]] = proof; // Store the proof with the address as the key
+
+        // Check for a specific address and get the proof if found
+        if (v[0] === "0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2") {
+          console.log("Proof for specific address:", proof);
+        }
+      }
+
+      // Write all proofs to a JSON file asynchronously
+      await fs.promises.writeFile(
+        "scripts/proofs.json",
+        JSON.stringify(proofs, null, 2)
+      );
+      console.log("All proofs have been saved to 'scripts/proofs.json'.");
+    } catch (err) {
+      console.error("Error reading or processing 'tree.json':", err);
+    }
+  })
+  .on("error", (err: Error) => {
+    console.error(`Error reading ${feedFile}:`, err);
+  });
+
+export const getAirdropList = async (): Promise<[string, number][]> => {
+  return new Promise((resolve, reject) => {
+    const values: [string, number][] = [];
+    fs.createReadStream(feedFile)
       .pipe(csv())
-      .on("data", (row: AirdropData) => {
-        values.push([row.address, row.amount]);
+      .on("data", (row: AirdropEntry) => {
+        if (isValidEthereumAddress(row.user_address)) {
+          values.push([row.user_address, Number(row.amount)]);
+        } else {
+          console.error(`Invalid Ethereum address: ${row.user_address}`);
+        }
       })
       .on("end", () => {
-        const tree = StandardMerkleTree.of(values, ["address", "uint256"]);
-        console.log("Merkle Root:", tree.root);
-
-        for (const [i, v] of tree.entries()) {
-          const proof = tree.getProof(i);
-          proofs[v[0]] = {
-            amount: v[1],
-            proof: proof,
-          };
-          console.log(`Address: ${v[0]}`);
-          console.log("Proof:", proof);
-          console.log("----------------------");
-        }
-
-        fs.writeFileSync(
-          "scripts/merkleTree.json",
-          JSON.stringify(tree.dump(), null, 2)
-        );
-        fs.writeFileSync(
-          "scripts/proofs.json",
-          JSON.stringify(proofs, null, 2)
-        );
-
-        console.log(
-          "Merkle tree and proofs saved to scripts/merkleTree.json and scripts/proofs.json"
-        );
-        resolve();
+        resolve(values);
       })
       .on("error", (err: Error) => {
-        console.error("Error reading 'airdrop.csv':", err);
         reject(err);
       });
   });
-}
-
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+};
