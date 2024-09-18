@@ -73,6 +73,25 @@ describe("ApeDrop", function () {
       expect(balance).to.equal(amount);
     });
 
+    it("Should not allow double claiming", async function () {
+      const { apeDrop, BAYC_HOLDER, tree } = await loadFixture(deployApeDrop);
+
+      await impersonateAccount(BAYC_HOLDER);
+      const baycOwner = await ethers.getSigner(BAYC_HOLDER);
+      await setBalance(BAYC_HOLDER, ethers.parseEther("10"));
+
+      const claimAmount = ethers.parseEther("100");
+      const proof = tree.getProof([BAYC_HOLDER, claimAmount]);
+
+      // First claim should succeed
+      await apeDrop.connect(baycOwner).claimAirdrop(proof, claimAmount);
+
+      // Second claim should fail
+      await expect(
+        apeDrop.connect(baycOwner).claimAirdrop(proof, claimAmount)
+      ).to.be.revertedWith("Address has already claimed");
+    });
+
     it("Should not allow non-BAYC holder to claim airdrop", async function () {
       const { apeDrop, addr1, tree } = await loadFixture(deployApeDrop);
 
