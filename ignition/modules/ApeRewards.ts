@@ -1,7 +1,7 @@
 import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
 
 const ERC20TokenModule = buildModule("ERC20TokenModule", (m) => {
-  const erc20Token = m.contract("ERC", []);
+  const erc20Token = m.contract("ERC20", []);
 
   return { erc20Token };
 });
